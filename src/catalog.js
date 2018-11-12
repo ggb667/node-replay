@@ -20,6 +20,13 @@ function mkpathSync(pathname) {
   }
 }
 
+// Returns true if header name matches one of the regular expressions.
+function match(name, regexps){
+  for (let regexp of regexps)
+    if (regexp.test(name))
+      return true;
+  return false;
+}
 
 // Parse headers from headerLines.  Optional argument `only` is an array of
 // regular expressions; only headers matching one of these expressions are
@@ -47,6 +54,11 @@ function parseHeaders(filename, headerLines, only = null) {
 
 
 function parseRequest(filename, request, requestHeaders) {
+  function parseRegexp(rawRegexp) {
+    const [ inRegexp, flags ] = rawRegexp.match(/^\/(.+)\/(i|m|g)?$/).slice(1);
+    return new RegExp(inRegexp, flags || '');
+  }
+
   assert(request, `${filename} missing request section`);
   const [ methodAndPath, ...headerLines ] = request.split(/\n/);
   let method;
@@ -55,32 +67,27 @@ function parseRequest(filename, request, requestHeaders) {
   let regexp;
   if (/\sREGEXP\s/.test(methodAndPath)) {
     [ method, rawRegexp ]  = methodAndPath.split(' REGEXP ');
-    const [ inRegexp, flags ] = rawRegexp.match(/^\/(.+)\/(i|m|g)?$/).slice(1);
-    regexp = new RegExp(inRegexp, flags || '');
+    regexp = parseRegexp(rawRegexp);
   } else
     [ method, path ] = methodAndPath.split(/\s/);
   assert(method && (path || regexp), `${filename}: first line must be <method> <path>`);
   assert(/^[a-zA-Z]+$/.test(method), `${filename}: method not valid`);
+
   const headers = parseHeaders(filename, headerLines, requestHeaders);
-  const body    = headers.body;
+  let body      = headers.body;
   delete headers.body;
+
+  if (body && /^REGEXP\s+/.test(body)) {
+    rawRegexp = body.split(/REGEXP\s+/)[1];
+    body = parseRegexp(rawRegexp);
+  }
+
   const url = path || regexp;
   return { url, method, headers, body };
 }
 
-function parseResponse(filename, response, body) {
-  if (response) {
-    const [ statusLine, ...headerLines ] = response.split(/\n/);
-    const { version, statusCode, statusMessage } = statusComponents(statusLine)
-    const headers         = parseHeaders(filename, headerLines);
-    const rawHeaders      = headerLines.reduce(function(raw, header) {
-      const [name, value] = header.split(/:\s+/);
-      raw.push(name);
-      raw.push(value);
-      return raw;
-    }, []);
-    return { statusCode, statusMessage, version, headers, rawHeaders, body, trailers: {}, rawTrailers: [] };
-  }
+function isResponseFormatNew(statusLine) {
+  return /^HTTP/.test(statusLine)
 }
 
 function statusComponents(statusLine) {
@@ -98,8 +105,19 @@ function statusComponents(statusLine) {
   return response;
 }
 
-function isResponseFormatNew(statusLine) {
-  return /^HTTP/.test(statusLine)
+function parseResponse(filename, response, body) {
+  if (response) {
+    const [ statusLine, ...headerLines ] = response.split(/\n/);
+    const { version, statusCode, statusMessage } = statusComponents(statusLine)
+    const headers         = parseHeaders(filename, headerLines);
+    const rawHeaders      = headerLines.reduce(function(raw, header) {
+      const [name, value] = header.split(/:\s+/);
+      raw.push(name);
+      raw.push(value);
+      return raw;
+    }, []);
+    return { statusCode, statusMessage, version, headers, rawHeaders, body, trailers: {}, rawTrailers: [] };
+  }
 }
 
 function readAndInitialParseFile(filename) {
@@ -129,15 +147,6 @@ function writeHeaders(file, headers, only = null) {
     else
       file.write(`${name}: ${value}\n`);
   }
-}
-
-
-// Returns true if header name matches one of the regular expressions.
-function match(name, regexps){
-  for (let regexp of regexps)
-    if (regexp.test(name))
-      return true;
-  return false;
 }
 
 module.exports = class Catalog {

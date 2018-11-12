@@ -97,14 +97,17 @@ module.exports = class Matcher {
       if (this.headers[name] !== headers[name])
         return false;
 
-    if (body) {
+    if (this.body && body) {
       let data = '';
       for (let chunks of body)
         data += chunks[0];
       data = jsStringEscape(data);
-      if (this.body && this.body !== data)
-        return false;
+
+      return this.body instanceof RegExp ?
+        this.body.test(data) :
+        this.body === data;
     }
+
     return true;
   }
 
@@ -114,7 +117,10 @@ module.exports = class Matcher {
   // Mapping can contain `request` and `response` object.  As shortcut, mapping can specify `path` and `method` (optional)
   // directly, and also any of the response properties.
   static fromMapping(host, mapping) {
-    assert(!!mapping.path ^ !!mapping.request, 'Mapping must specify path or request object');
+    const hasPath = mapping.path && mapping.path.length;
+    const hasRequest = mapping.request && mapping.request.length;
+    assert(hasPath !== hasRequest);
+    //assert(!!mapping.path ^ !!mapping.request, 'Mapping must specify path or request object');//This is insane
 
     let matchingRequest;
     if (mapping.path)

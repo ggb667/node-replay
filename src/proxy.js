@@ -30,6 +30,51 @@ const HTTPS             = require('https');
 const Stream            = require('stream');
 const URL               = require('url');
 
+// HTTP client response that plays back a captured response.
+class ProxyResponse extends Stream.Readable {
+
+  constructor(captured) {
+    super();
+    this.once('end', ()=> {
+      this.emit('close');
+    });
+
+    this.httpVersion      = captured.version || '1.1';
+    this.httpVersionMajor = this.httpVersion.split('.')[0];
+    this.httpVersionMinor = this.httpVersion.split('.')[1];
+    this.statusCode       = parseInt(captured.statusCode || 200, 10);
+    this.statusMessage    = captured.statusMessage || HTTP.STATUS_CODES[this.statusCode] || '';
+    this.headers          = Object.assign({ }, captured.headers);
+    this.rawHeaders       = (captured.rawHeaders || [].slice(0));
+    this.trailers         = Object.assign({ }, captured.trailers);
+    this.rawTrailers      = (captured.rawTrailers || []).slice(0);
+    // Not a documented property, but request seems to use this to look for HTTP parsing errors
+    this.connection       = new EventEmitter();
+    this._body            = captured.body.slice(0);
+    this.client           = { authorized: true }
+  }
+
+  _read() {
+    const part = this._body.shift();
+    if (part)
+      this.push(part[0], part[1]);
+    else
+      this.push(null);
+  }
+
+  setTimeout(msec, callback) {
+    if (callback)
+      setImmediate(callback);
+  }
+
+  static notFound(url) {
+    return new ProxyResponse({
+      status: 404,
+      body:   [ `No recorded request/response that matches ${URL.format(url)}` ]
+    });
+  }
+
+}
 
 // HTTP client request that captures the request and sends it down the processing chain.
 module.exports = class ProxyRequest extends HTTP.IncomingMessage {
@@ -140,51 +185,4 @@ module.exports = class ProxyRequest extends HTTP.IncomingMessage {
   }
 
 };
-
-
-// HTTP client response that plays back a captured response.
-class ProxyResponse extends Stream.Readable {
-
-  constructor(captured) {
-    super();
-    this.once('end', ()=> {
-      this.emit('close');
-    });
-
-    this.httpVersion      = captured.version || '1.1';
-    this.httpVersionMajor = this.httpVersion.split('.')[0];
-    this.httpVersionMinor = this.httpVersion.split('.')[1];
-    this.statusCode       = parseInt(captured.statusCode || 200, 10);
-    this.statusMessage    = captured.statusMessage || HTTP.STATUS_CODES[this.statusCode] || '';
-    this.headers          = Object.assign({ }, captured.headers);
-    this.rawHeaders       = (captured.rawHeaders || [].slice(0));
-    this.trailers         = Object.assign({ }, captured.trailers);
-    this.rawTrailers      = (captured.rawTrailers || []).slice(0);
-    // Not a documented property, but request seems to use this to look for HTTP parsing errors
-    this.connection       = new EventEmitter();
-    this._body            = captured.body.slice(0);
-    this.client           = { authorized: true }
-  }
-
-  _read() {
-    const part = this._body.shift();
-    if (part)
-      this.push(part[0], part[1]);
-    else
-      this.push(null);
-  }
-
-  setTimeout(msec, callback) {
-    if (callback)
-      setImmediate(callback);
-  }
-
-  static notFound(url) {
-    return new ProxyResponse({
-      status: 404,
-      body:   [ `No recorded request/response that matches ${URL.format(url)}` ]
-    });
-  }
-
-}
 

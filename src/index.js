@@ -9,7 +9,13 @@ const { EventEmitter }  = require('events');
 const logger            = require('./logger');
 const passThrough       = require('./pass_through');
 const recorder          = require('./recorder');
-
+const HTTP              = require('http');
+const HTTPS             = require('https');
+const DNS               = require('dns');
+const origHttpRequest   = HTTP.request;
+const origHttpGet       = HTTP.get;
+const origHttpsGet      = HTTPS.get;
+const originalLookup    = DNS.lookup;
 
 // Supported modes
 const MODES = [
@@ -57,8 +63,7 @@ const MATCH_HEADERS = [ /^accept/, /^authorization/, /^body/, /^content-type/, /
 class Replay extends EventEmitter {
 
   constructor(mode) {
-    if (!~MODES.indexOf(mode))
-      throw new Error(`Unsupported mode '${mode}', must be one of ${MODES.join(', ')}.`);
+    if (!(MODES.indexOf(mode) > -1)) throw new Error(`Unsupported mode '${mode}', must be one of ${MODES.join(', ')}.`);
 
     super();
     this.mode   = mode;
@@ -142,6 +147,13 @@ class Replay extends EventEmitter {
       this._dropped.delete(host);
     }
     return this;
+  }
+
+  restore() {
+    HTTP.request = origHttpRequest;
+    HTTP.get = origHttpGet;
+    HTTPS.get = origHttpsGet;
+    DNS.lookup = originalLookup;
   }
 
   get fixtures() {
